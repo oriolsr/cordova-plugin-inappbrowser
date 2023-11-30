@@ -128,7 +128,7 @@ public class InAppBrowser extends CordovaPlugin {
     private EditText edittext;
     private CallbackContext callbackContext;
     private boolean showLocationBar = true;
-    private boolean showZoomControls = true;
+    private boolean showZoomControls = false;
     private boolean openWindowHidden = false;
     private boolean clearAllCache = false;
     private boolean clearSessionCache = false;
@@ -143,7 +143,7 @@ public class InAppBrowser extends CordovaPlugin {
     private boolean leftToRight = false;
     private int toolbarColor = android.graphics.Color.LTGRAY;
     private boolean hideNavigationButtons = false;
-    private String navigationButtonColor = "";
+    private String navigationButtonColor = "#4f93ff";
     private boolean hideUrlBar = false;
     private boolean showFooter = false;
     private String footerColor = "";
@@ -625,7 +625,7 @@ public class InAppBrowser extends CordovaPlugin {
     public String showWebPage(final String url, HashMap<String, String> features) {
         // Determine if we should hide the location bar.
         showLocationBar = true;
-        showZoomControls = true;
+        showZoomControls = false;
         openWindowHidden = false;
         mediaPlaybackRequiresUserGesture = false;
 
@@ -684,11 +684,13 @@ public class InAppBrowser extends CordovaPlugin {
                 closeButtonColor = closeButtonColorSet;
             }
             String leftToRightSet = features.get(LEFT_TO_RIGHT);
-            leftToRight = leftToRightSet != null && leftToRightSet.equals("yes");
+            leftToRight = leftToRightSet == null || leftToRightSet.equals("no");
 
             String toolbarColorSet = features.get(TOOLBAR_COLOR);
             if (toolbarColorSet != null) {
                 toolbarColor = android.graphics.Color.parseColor(toolbarColorSet);
+            } else {
+                toolbarColor = android.graphics.Color.parseColor("#575757");
             }
             String navigationButtonColorSet = features.get(NAVIGATION_COLOR);
             if (navigationButtonColorSet != null) {
@@ -696,7 +698,9 @@ public class InAppBrowser extends CordovaPlugin {
             }
             String showFooterSet = features.get(FOOTER);
             if (showFooterSet != null) {
-                showFooter = showFooterSet.equals("yes") ? true : false;
+                showFooter = showFooterSet.equals("no") ? false : true;
+            } else {
+                showFooter = true;
             }
             String footerColorSet = features.get(FOOTER_COLOR);
             if (footerColorSet != null) {
@@ -737,7 +741,7 @@ public class InAppBrowser extends CordovaPlugin {
                     // Use TextView for text
                     TextView close = new TextView(cordova.getActivity());
                     close.setText(closeButtonCaption);
-                    close.setTextSize(20);
+                    close.setTextSize(18);
                     if (closeButtonColor != "") close.setTextColor(android.graphics.Color.parseColor(closeButtonColor));
                     close.setGravity(android.view.Gravity.CENTER_VERTICAL);
                     close.setPadding(this.dpToPixels(10), 0, this.dpToPixels(10), 0);
@@ -810,12 +814,22 @@ public class InAppBrowser extends CordovaPlugin {
                 // Action Button Container layout
                 RelativeLayout actionButtonContainer = new RelativeLayout(cordova.getActivity());
                 RelativeLayout.LayoutParams actionButtonLayoutParams = new RelativeLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
-                if (leftToRight) actionButtonLayoutParams.addRule(RelativeLayout.ALIGN_PARENT_RIGHT);
-                else actionButtonLayoutParams.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
+                if (leftToRight) actionButtonLayoutParams.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
+                else actionButtonLayoutParams.addRule(RelativeLayout.ALIGN_PARENT_RIGHT);
                 actionButtonContainer.setLayoutParams(actionButtonLayoutParams);
                 actionButtonContainer.setHorizontalGravity(Gravity.LEFT);
                 actionButtonContainer.setVerticalGravity(Gravity.CENTER_VERTICAL);
                 actionButtonContainer.setId(leftToRight ? Integer.valueOf(5) : Integer.valueOf(1));
+
+                // URL container layout
+                RelativeLayout urlContainer = new RelativeLayout(cordova.getActivity());
+                RelativeLayout.LayoutParams urlLayoutParams = new RelativeLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+                if (leftToRight) urlLayoutParams.addRule(RelativeLayout.CENTER_IN_PARENT);
+                else urlLayoutParams.addRule(RelativeLayout.CENTER_IN_PARENT);
+                urlContainer.setLayoutParams(urlLayoutParams);
+                urlContainer.setHorizontalGravity(Gravity.LEFT);
+                urlContainer.setVerticalGravity(Gravity.CENTER_VERTICAL);
+                urlContainer.setId(leftToRight ? Integer.valueOf(5) : Integer.valueOf(1));
 
                 // Back button
                 ImageButton back = new ImageButton(cordova.getActivity());
@@ -856,21 +870,33 @@ public class InAppBrowser extends CordovaPlugin {
                 forward.setPadding(0, this.dpToPixels(10), 0, this.dpToPixels(10));
                 forward.getAdjustViewBounds();
 
-                forward.setOnClickListener(new View.OnClickListener() {
-                    public void onClick(View v) {
-                        goForward();
-                    }
-                });
+                // https icon
+                ImageButton https = new ImageButton(cordova.getActivity());
+                RelativeLayout.LayoutParams httpsLayoutParams = new RelativeLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT);
+                httpsLayoutParams.addRule(RelativeLayout.ALIGN_LEFT);
+                https.setLayoutParams(httpsLayoutParams);
+                https.setContentDescription("Https secured");
+                https.setId(Integer.valueOf(6));
+                int httpsResId = activityRes.getIdentifier("ic_https", "drawable", cordova.getActivity().getPackageName());
+                Drawable httpsIcon = activityRes.getDrawable(httpsResId);
+                if (navigationButtonColor != "") https.setColorFilter(android.graphics.Color.parseColor("#FFFFFF"));
+                https.setBackground(null);
+                https.setImageDrawable(httpsIcon);
+                https.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                https.setPadding(0, this.dpToPixels(10), 0, this.dpToPixels(10));
+                https.getAdjustViewBounds();
 
-                // Edit Text Box
+                // URL Text Box
                 edittext = new EditText(cordova.getActivity());
-                RelativeLayout.LayoutParams textLayoutParams = new RelativeLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT);
-                textLayoutParams.addRule(RelativeLayout.RIGHT_OF, 1);
-                textLayoutParams.addRule(RelativeLayout.LEFT_OF, 5);
+                RelativeLayout.LayoutParams textLayoutParams = new RelativeLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT);
+                textLayoutParams.addRule(RelativeLayout.RIGHT_OF, 6);
                 edittext.setLayoutParams(textLayoutParams);
                 edittext.setId(Integer.valueOf(4));
                 edittext.setSingleLine(true);
-                edittext.setText(url);
+                String host = url.replaceAll("http(s)?://|www\\.|/.*", "");
+                edittext.setText(host);
+                edittext.setTextColor(android.graphics.Color.parseColor("#FFFFFF"));
+                edittext.setTextSize(16);
                 edittext.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
                 edittext.setImeOptions(EditorInfo.IME_ACTION_GO);
                 edittext.setInputType(InputType.TYPE_NULL); // Will not except input... Makes the text NON-EDITABLE
@@ -893,22 +919,13 @@ public class InAppBrowser extends CordovaPlugin {
 
                 // Footer
                 RelativeLayout footer = new RelativeLayout(cordova.getActivity());
-                int _footerColor;
-                if(footerColor != "") {
-                    _footerColor = Color.parseColor(footerColor);
-                } else {
-                    _footerColor = android.graphics.Color.LTGRAY;
-                }
-                footer.setBackgroundColor(_footerColor);
+                footer.setBackgroundColor(toolbarColor);
                 RelativeLayout.LayoutParams footerLayout = new RelativeLayout.LayoutParams(LayoutParams.MATCH_PARENT, this.dpToPixels(TOOLBAR_HEIGHT));
                 footerLayout.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM, RelativeLayout.TRUE);
                 footer.setLayoutParams(footerLayout);
-                if (closeButtonCaption != "") footer.setPadding(this.dpToPixels(8), this.dpToPixels(8), this.dpToPixels(8), this.dpToPixels(8));
+                footer.setPadding(this.dpToPixels(2), this.dpToPixels(2), this.dpToPixels(2), this.dpToPixels(2));
                 footer.setHorizontalGravity(Gravity.LEFT);
                 footer.setVerticalGravity(Gravity.BOTTOM);
-
-                View footerClose = createCloseButton(7);
-                footer.addView(footerClose);
 
                 // WebView
                 inAppWebView = new WebView(cordova.getActivity());
@@ -1029,8 +1046,12 @@ public class InAppBrowser extends CordovaPlugin {
                 actionButtonContainer.addView(forward);
 
                 // Add the views to our toolbar if they haven't been disabled
-                if (!hideNavigationButtons) toolbar.addView(actionButtonContainer);
-                if (!hideUrlBar) toolbar.addView(edittext);
+                if (!hideNavigationButtons) footer.addView(actionButtonContainer);
+                if (!hideUrlBar) {
+                    urlContainer.addView(https);
+                    urlContainer.addView(edittext);
+                    toolbar.addView(urlContainer);
+                }
 
                 // Don't add the toolbar if its been disabled
                 if (getShowLocationBar()) {
@@ -1343,9 +1364,10 @@ public class InAppBrowser extends CordovaPlugin {
                 newloc = "http://" + url;
             }
 
+            String host = newloc.replaceAll("http(s)?://|www\\.|/.*", "");
             // Update the UI if we haven't already
-            if (!newloc.equals(edittext.getText().toString())) {
-                edittext.setText(newloc);
+            if (!host.equals(edittext.getText().toString())) {
+                edittext.setText(host);
             }
 
             try {
@@ -1477,4 +1499,3 @@ public class InAppBrowser extends CordovaPlugin {
         }
     }
 }
-
