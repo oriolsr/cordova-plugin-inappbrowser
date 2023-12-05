@@ -819,7 +819,7 @@ BOOL isExiting = FALSE;
     float locationBarY = toolbarIsAtBottom ? self.view.bounds.size.height - FOOTER_HEIGHT : self.view.bounds.size.height - TOOLBAR_HEIGHT;
 
     self.addressLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, locationBarY, 220, LOCATIONBAR_HEIGHT)];
-    self.addressLabel.font = [UIFont systemFontOfSize:self.addressLabel.font.pointSize weight:UIFontWeightBold];
+    self.addressLabel.font = [UIFont systemFontOfSize:self.addressLabel.font.pointSize weight:UIFontWeightSemibold];
     self.addressLabel.textColor = [UIColor colorWithWhite:1.000 alpha:1.000];
     self.addressLabel.text = NSLocalizedString(@"Loading...", nil);
     self.addressLabel.clipsToBounds = YES;
@@ -870,13 +870,30 @@ BOOL isExiting = FALSE;
       self.forwardButton.tintColor = [self colorFromHexString:_browserOptions.navigationbuttoncolor];
     }
 
-    NSString* backArrowString = NSLocalizedString(@"<", nil); // create arrow from Unicode char
     self.backButton = [[UIBarButtonItem alloc] initWithImage:arrowLeftResizedImage style:UIBarButtonItemStylePlain target:self action:@selector(goBack:)];
     self.backButton.enabled = YES;
     self.backButton.imageInsets = UIEdgeInsetsZero;
     if (_browserOptions.navigationbuttoncolor != nil) { // Set button color if user sets it in options
       self.backButton.tintColor = [self colorFromHexString:_browserOptions.navigationbuttoncolor];
     }
+
+    NSString *base64CloseString = @"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABABAMAAABYR2ztAAAALVBMVEUAAABQk/9Qk/9Plf9Ok/9Pk/9Olf9Ok/9PlP9PlP9PlP9PlP9PlP9PlP////9ofB/lAAAADXRSTlMASVBUVVdbXOLj5Pv8zg0BTAAAAAFiS0dEDm+9ME8AAAEASURBVEjH7dW7DcIwEAbgSJAhYANghIxAQ0/DCKwAm0BPg0TpFlYgSm4XZFn2vR3Rx5UdW58s32+naeZW2vpufd3eSvcxHPR8G3pcAC+94Ajf0t+BJtoAzzJYBPjIBXsYTzjqYDzz+WWANxlqggOaEIAmJCAJBUhCA5wwAE5YACVMgBI2gIQDIOEBmXCBTPhAIipAImpAjNkQrPhRogrEXVR2kM5Ap1MESaXzr03GM+hqRDwD647wIFWIdIg+kavgErkKHoFldAgso03QHJgEzYFF8CAZBA+SJmQSFSGTKAkdZUHoKHPCuguMmHxInae4n3rM8a1eXa3ybi7zjxLbD/8a07ETLUOlAAAAAElFTkSuQmCC";
+    NSURL *closeUrl = [NSURL URLWithString:base64CloseString];
+    NSData *closeImageData = [NSData dataWithContentsOfURL:closeUrl];
+    UIImage *closeImage = [UIImage imageWithData:closeImageData];
+    // Create a new UIImage with the desired dimensions
+    UIGraphicsBeginImageContextWithOptions(targetSize, NO, 0.0);
+    [closeImage drawInRect:CGRectMake(0, 0, targetSize.width, targetSize.height)];
+    UIImage *closeResizedImage = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+
+    UIBarButtonItem *closeButton = [[UIBarButtonItem alloc] initWithImage:closeResizedImage style:UIBarButtonItemStylePlain target:self action:@selector(close)];
+    closeButton.enabled = YES;
+    closeButton.imageInsets = UIEdgeInsetsZero;
+    if (_browserOptions.navigationbuttoncolor != nil) { // Set button color if user sets it in options
+        closeButton.tintColor = [self colorFromHexString:_browserOptions.navigationbuttoncolor];
+    }
+
 
     // Filter out Navigation Buttons if user requests so
     if (_browserOptions.hidenavigationbuttons) {
@@ -888,7 +905,7 @@ BOOL isExiting = FALSE;
     } else if (_browserOptions.lefttoright) {
         [self.toolbar setItems:@[self.backButton, fixedSpaceButton, self.forwardButton, flexibleSpaceButton, self.closeButton]];
     } else {
-        [self.toolbar setItems:@[self.closeButton, flexibleSpaceButton, self.addressButton, flexibleSpaceButton, fixedSpaceOppositeButton]];
+        [self.toolbar setItems:@[self.closeButton, flexibleSpaceButton, self.addressButton, flexibleSpaceButton, closeButton]];
     }
 
     float footerY = self.view.bounds.size.height - TOOLBAR_HEIGHT - bottomPadding;

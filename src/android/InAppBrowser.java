@@ -24,6 +24,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.graphics.drawable.ShapeDrawable;
+import android.graphics.drawable.shapes.RoundRectShape;
 import android.os.Parcelable;
 import android.provider.Browser;
 import android.content.res.Resources;
@@ -83,6 +85,21 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.HashMap;
 import java.util.StringTokenizer;
+
+class RoundedRelativeLayout extends RelativeLayout {
+
+    public RoundedRelativeLayout(Context context) {
+        super(context);
+    }
+
+    public ShapeDrawable setBackgroundRounded(int color) {
+        ShapeDrawable shapeDrawable = new ShapeDrawable();
+        shapeDrawable.setShape(new RoundRectShape(new float[]{24, 24, 24, 24, 0, 0, 0, 0}, null, null));
+        shapeDrawable.getPaint().setColor(color);
+        setBackground(shapeDrawable);
+        return shapeDrawable;
+    }
+}
 
 @SuppressLint("SetJavaScriptEnabled")
 public class InAppBrowser extends CordovaPlugin {
@@ -799,9 +816,9 @@ public class InAppBrowser extends CordovaPlugin {
                 main.setOrientation(LinearLayout.VERTICAL);
 
                 // Toolbar layout
-                RelativeLayout toolbar = new RelativeLayout(cordova.getActivity());
+                RoundedRelativeLayout toolbar = new RoundedRelativeLayout(cordova.getActivity());
                 //Please, no more black!
-                toolbar.setBackgroundColor(toolbarColor);
+                toolbar.setBackgroundRounded(toolbarColor);
                 toolbar.setLayoutParams(new RelativeLayout.LayoutParams(LayoutParams.MATCH_PARENT, this.dpToPixels(TOOLBAR_HEIGHT)));
                 toolbar.setPadding(this.dpToPixels(2), this.dpToPixels(2), this.dpToPixels(2), this.dpToPixels(2));
                 if (leftToRight) {
@@ -883,7 +900,7 @@ public class InAppBrowser extends CordovaPlugin {
                 https.setBackground(null);
                 https.setImageDrawable(httpsIcon);
                 https.setScaleType(ImageView.ScaleType.FIT_CENTER);
-                https.setPadding(0, this.dpToPixels(10), 0, this.dpToPixels(10));
+                https.setPadding(0, this.dpToPixels(14), 0, this.dpToPixels(14));
                 https.getAdjustViewBounds();
 
                 // URL Text Box
@@ -893,8 +910,10 @@ public class InAppBrowser extends CordovaPlugin {
                 edittext.setLayoutParams(textLayoutParams);
                 edittext.setId(Integer.valueOf(4));
                 edittext.setSingleLine(true);
+                edittext.setBackground(null);
                 String host = url.replaceAll("http(s)?://|www\\.|/.*", "");
                 edittext.setText(host);
+                edittext.setPadding(0, 2, 0, 0);
                 edittext.setTextColor(android.graphics.Color.parseColor("#FFFFFF"));
                 edittext.setTextSize(16);
                 edittext.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
