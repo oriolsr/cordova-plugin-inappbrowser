@@ -11,8 +11,8 @@
       "ios"
     ]
   },
-  "repository": "github:apache/cordova-plugin-inappbrowser",
-  "bugs": "https://github.com/apache/cordova-plugin-inappbrowser/issues",
+  "repository": "github:oriolsr/cordova-plugin-inappbrowser",
+  "bugs": "https://github.com/oriolsr/cordova-plugin-inappbrowser/issues",
   "keywords": [
     "cordova",
     "in",
