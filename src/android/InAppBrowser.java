@@ -22,6 +22,9 @@ import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.ActivityInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.drawable.ShapeDrawable;
@@ -498,12 +501,16 @@ public class InAppBrowser extends CordovaPlugin {
         boolean hasCurrentPackage = false;
 
         PackageManager pm = cordova.getActivity().getPackageManager();
-        List<ResolveInfo> activities = pm.queryIntentActivities(intent, 0);
+        Intent simpleIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(intent.getData().toString()));
+        simpleIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        simpleIntent.addCategory(Intent.CATEGORY_DEFAULT);
+        simpleIntent.addCategory(Intent.CATEGORY_BROWSABLE);
+        List<ResolveInfo> activities = pm.queryIntentActivities(simpleIntent, 0);
         ArrayList<Intent> targetIntents = new ArrayList<Intent>();
 
         for (ResolveInfo ri : activities) {
             if (!currentPackage.equals(ri.activityInfo.packageName)) {
-                Intent targetIntent = (Intent)intent.clone();
+                Intent targetIntent = (Intent)simpleIntent.clone();
                 targetIntent.setPackage(ri.activityInfo.packageName);
                 targetIntents.add(targetIntent);
             }
@@ -515,7 +522,11 @@ public class InAppBrowser extends CordovaPlugin {
         // If the current app package isn't a target for this URL, then use
         // the normal launch behavior
         if (hasCurrentPackage == false || targetIntents.size() == 0) {
-            this.cordova.getActivity().startActivity(intent);
+            try {
+                this.cordova.getActivity().startActivity(simpleIntent);
+            } catch (Exception e) {
+                LOG.d(LOG_TAG, "Failed to launch generic intent: " + e.getMessage());
+            }
         }
         // If there's only one possible intent, launch it directly
         else if (targetIntents.size() == 1) {
