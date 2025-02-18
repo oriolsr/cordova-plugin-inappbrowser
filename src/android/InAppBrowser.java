@@ -87,6 +87,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.StringTokenizer;
 
 class RoundedRelativeLayout extends RelativeLayout {
@@ -138,6 +140,7 @@ public class InAppBrowser extends CordovaPlugin {
     private static final String FOOTER_COLOR = "footercolor";
     private static final String BEFORELOAD = "beforeload";
     private static final String FULLSCREEN = "fullscreen";
+    private static final String LAUNCH_NEW_TASK = "launchInNewTask";
 
     private static final int TOOLBAR_HEIGHT = 48;
 
@@ -169,6 +172,7 @@ public class InAppBrowser extends CordovaPlugin {
     private String footerColor = "";
     private String beforeload = "";
     private boolean fullscreen = true;
+    private boolean launchInNewTask = false;
     private String[] allowedSchemes;
     private InAppBrowserClient currentClient;
 
@@ -261,7 +265,7 @@ public class InAppBrowser extends CordovaPlugin {
                     // SYSTEM
                     else if (SYSTEM.equals(target)) {
                         LOG.d(LOG_TAG, "in system");
-                        result = openExternal(url);
+                        result = openExternal(url, features);
                     }
                     // BLANK - or anything else
                     else {
@@ -287,8 +291,13 @@ public class InAppBrowser extends CordovaPlugin {
                 @SuppressLint("NewApi")
                 @Override
                 public void run() {
+                    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) {
+                        currentClient.waitForBeforeload = false;
+                        inAppWebView.setWebViewClient(currentClient);
+                    } else {
+                        ((InAppBrowserClient)inAppWebView.getWebViewClient()).waitForBeforeload = false;
+                    }
                     inAppWebView.loadUrl(url);
-
                 }
             });
         }
@@ -469,7 +478,7 @@ public class InAppBrowser extends CordovaPlugin {
      * @param url the url to load.
      * @return "" if ok, or error message.
      */
-    public String openExternal(String url) {
+    public String openExternal(String url, HashMap<String, String> features) {
         try {
             Intent intent = null;
             intent = new Intent(Intent.ACTION_VIEW);
@@ -482,6 +491,20 @@ public class InAppBrowser extends CordovaPlugin {
                 intent.setData(uri);
             }
             intent.putExtra(Browser.EXTRA_APPLICATION_ID, cordova.getActivity().getPackageName());
+
+            if (features != null) {
+                String launchNewTask = features.get(LAUNCH_NEW_TASK);
+                if (launchNewTask != null) {
+                    launchInNewTask = launchNewTask.equals("yes") ? true : false;
+                }
+            }
+
+            if (launchInNewTask) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                intent.addCategory(Intent.CATEGORY_DEFAULT);
+                intent.addCategory(Intent.CATEGORY_BROWSABLE);
+            }
+
             // CB-10795: Avoid circular loops by preventing it from opening in the current app
             this.openExternalExcludeCurrentApp(intent);
             return "";
@@ -501,16 +524,33 @@ public class InAppBrowser extends CordovaPlugin {
         boolean hasCurrentPackage = false;
 
         PackageManager pm = cordova.getActivity().getPackageManager();
-        Intent simpleIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(intent.getData().toString()));
-        simpleIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        simpleIntent.addCategory(Intent.CATEGORY_DEFAULT);
-        simpleIntent.addCategory(Intent.CATEGORY_BROWSABLE);
-        List<ResolveInfo> activities = pm.queryIntentActivities(simpleIntent, 0);
+        Intent systemIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://akiles.app"));
+        List<ResolveInfo> activities1 = pm.queryIntentActivities(systemIntent, 0);
+        List<ResolveInfo> activities2 = pm.queryIntentActivities(intent, 0);
+        Set<String> packageNames = new HashSet<>();
+        List<ResolveInfo> activities = new ArrayList<>();
+
+        // Add activities1, keeping only the first occurrence per package
+        for (ResolveInfo info : activities1) {
+            String packageName = info.activityInfo.packageName;
+            if (packageNames.add(packageName)) { // add() returns true if not already present
+                activities.add(info);
+            }
+        }
+
+        // Add activities2, skipping duplicates
+        for (ResolveInfo info : activities2) {
+            String packageName = info.activityInfo.packageName;
+            if (packageNames.add(packageName)) {
+                activities.add(info);
+            }
+        }
+
         ArrayList<Intent> targetIntents = new ArrayList<Intent>();
 
         for (ResolveInfo ri : activities) {
             if (!currentPackage.equals(ri.activityInfo.packageName)) {
-                Intent targetIntent = (Intent)simpleIntent.clone();
+                Intent targetIntent = (Intent)intent.clone();
                 targetIntent.setPackage(ri.activityInfo.packageName);
                 targetIntents.add(targetIntent);
             }
@@ -522,11 +562,7 @@ public class InAppBrowser extends CordovaPlugin {
         // If the current app package isn't a target for this URL, then use
         // the normal launch behavior
         if (hasCurrentPackage == false || targetIntents.size() == 0) {
-            try {
-                this.cordova.getActivity().startActivity(simpleIntent);
-            } catch (Exception e) {
-                LOG.d(LOG_TAG, "Failed to launch generic intent: " + e.getMessage());
-            }
+            this.cordova.getActivity().startActivity(intent);
         }
         // If there's only one possible intent, launch it directly
         else if (targetIntents.size() == 1) {
@@ -1171,6 +1207,7 @@ public class InAppBrowser extends CordovaPlugin {
         EditText edittext;
         CordovaWebView webView;
         String beforeload;
+        boolean waitForBeforeload;
 
         /**
          * Constructor.
