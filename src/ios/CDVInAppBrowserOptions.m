@@ -44,6 +44,7 @@
         self.lefttoright = false;
         self.toolbarcolor = nil;
         self.toolbartranslucent = YES;
+        self.toolbaroverlay = NO;
         self.beforeload = @"";
     }
 

@@ -561,7 +561,6 @@ static CDVWKInAppBrowser* instance = nil;
 
 - (void)didStartProvisionalNavigation:(WKWebView*)theWebView
 {
-    NSLog(@"didStartProvisionalNavigation");
 //    self.inAppBrowserViewController.currentURL = theWebView.URL;
 }
 
@@ -758,7 +757,12 @@ BOOL isExiting = FALSE;
     self.webView.allowsLinkPreview = NO;
     self.webView.allowsBackForwardNavigationGestures = NO;
 
-    [self.webView.scrollView setContentInsetAdjustmentBehavior:UIScrollViewContentInsetAdjustmentNever];
+    // For iOS 26, allow automatic content inset adjustment for safe areas
+    if ([self isIOS26OrLater]) {
+        [self.webView.scrollView setContentInsetAdjustmentBehavior:UIScrollViewContentInsetAdjustmentAutomatic];
+    } else {
+        [self.webView.scrollView setContentInsetAdjustmentBehavior:UIScrollViewContentInsetAdjustmentNever];
+    }
 
     self.spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleGray];
     self.spinner.alpha = 1.000;
@@ -775,8 +779,25 @@ BOOL isExiting = FALSE;
     self.spinner.userInteractionEnabled = NO;
     [self.spinner stopAnimating];
 
-    self.closeButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(close)];
-    self.closeButton.enabled = YES;
+    // Create the close button with custom caption/color if provided
+    // For iOS 26, we create it properly from the start to avoid showing the checkmark
+    if (_browserOptions.closebuttoncaption != nil || _browserOptions.closebuttoncolor != nil) {
+        // Custom title provided
+        NSString* title = _browserOptions.closebuttoncaption;
+        NSString* colorString = _browserOptions.closebuttoncolor;
+        
+        self.closeButton = title != nil ?
+            [[UIBarButtonItem alloc] initWithTitle:title style:UIBarButtonItemStylePlain target:self action:@selector(close)] :
+            [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(close)];
+        self.closeButton.enabled = YES;
+        self.closeButton.tintColor = colorString != nil ?
+            [self colorFromHexString:colorString] :
+            [UIColor colorWithRed:60.0 / 255.0 green:136.0 / 255.0 blue:230.0 / 255.0 alpha:1];
+    } else {
+        // No custom title - use system Done button
+        self.closeButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(close)];
+        self.closeButton.enabled = YES;
+    }
 
     UIBarButtonItem* flexibleSpaceButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil];
 
@@ -789,53 +810,124 @@ BOOL isExiting = FALSE;
         NSUInteger closeButtonCaptionLength = [_browserOptions.closebuttoncaption length];
         fixedSpaceOppositeButton.width = closeButtonCaptionLength * 10;
     }
+    
+    // For iOS 26, skip toolbar creation entirely - we'll only use a floating close button
+    if (![self isIOS26OrLater]) {
+        // Add extra spacing for older iOS where buttons might be larger
+        CGFloat ios26ButtonSpacing = 0.0;
 
-    float toolbarY = toolbarIsAtBottom ? self.view.bounds.size.height - TOOLBAR_HEIGHT : 0.0;
-    CGRect toolbarFrame = CGRectMake(0.0, toolbarY, self.view.bounds.size.width, TOOLBAR_HEIGHT);
+        float toolbarY = toolbarIsAtBottom ? self.view.bounds.size.height - TOOLBAR_HEIGHT : 0.0;
+        CGRect toolbarFrame = CGRectMake(0.0, toolbarY, self.view.bounds.size.width, TOOLBAR_HEIGHT);
 
-    self.toolbar = [[UIToolbar alloc] initWithFrame:toolbarFrame];
-    self.toolbar.alpha = 1.000;
-    self.toolbar.autoresizesSubviews = YES;
-    self.toolbar.autoresizingMask = toolbarIsAtBottom ? (UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin) : UIViewAutoresizingFlexibleWidth;
-    self.toolbar.barStyle = UIBarStyleBlackOpaque;
-    self.toolbar.clearsContextBeforeDrawing = NO;
-    self.toolbar.clipsToBounds = NO;
-    self.toolbar.contentMode = UIViewContentModeScaleToFill;
-    self.toolbar.hidden = NO;
-    self.toolbar.multipleTouchEnabled = NO;
-    self.toolbar.opaque = NO;
-    self.toolbar.userInteractionEnabled = YES;
-    if (_browserOptions.toolbarcolor != nil) { // Set toolbar color if user sets it in options
-      self.toolbar.barTintColor = [self colorFromHexString:_browserOptions.toolbarcolor];
+        self.toolbar = [[UIToolbar alloc] initWithFrame:toolbarFrame];
+        self.toolbar.alpha = 1.000;
+        self.toolbar.autoresizesSubviews = YES;
+        self.toolbar.autoresizingMask = toolbarIsAtBottom ? (UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin) : UIViewAutoresizingFlexibleWidth;
+        self.toolbar.barStyle = UIBarStyleBlackOpaque;
+        
+        self.toolbar.clearsContextBeforeDrawing = NO;
+        self.toolbar.clipsToBounds = NO;
+        self.toolbar.contentMode = UIViewContentModeScaleToFill;
+        self.toolbar.hidden = NO;
+        self.toolbar.multipleTouchEnabled = NO;
+        self.toolbar.opaque = NO;
+        self.toolbar.userInteractionEnabled = YES;
+        
+        if (_browserOptions.toolbarcolor != nil) { // Set toolbar color if user sets it in options
+          self.toolbar.barTintColor = [self colorFromHexString:_browserOptions.toolbarcolor];
+        }
+
+        // For older iOS: enable overlay/transparent top bar only if explicitly requested
+        BOOL toolbarOverlayEnabled = _browserOptions.toolbaroverlay;
+        
+        if (toolbarOverlayEnabled) {
+            // Explicit overlay option for older iOS
+            self.toolbar.translucent = YES;
+            if (@available(iOS 15.0, *)) {
+                UIToolbarAppearance* appearance = [[UIToolbarAppearance alloc] init];
+                [appearance configureWithTransparentBackground];
+                appearance.backgroundEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemChromeMaterial];
+                self.toolbar.standardAppearance = appearance;
+                self.toolbar.scrollEdgeAppearance = appearance;
+                self.toolbar.compactAppearance = appearance;
+            } else if (@available(iOS 13.0, *)) {
+                UIToolbarAppearance* appearance = [[UIToolbarAppearance alloc] init];
+                [appearance configureWithTransparentBackground];
+                appearance.backgroundEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleRegular];
+                self.toolbar.standardAppearance = appearance;
+            }
+            self.toolbar.layer.mask = nil;
+        } else {
+            // Non-overlay toolbar
+            if (!_browserOptions.toolbartranslucent) {
+                self.toolbar.translucent = NO;
+            }
+            // Rounded corners for non-overlay toolbar
+            CAShapeLayer * maskLayer = [CAShapeLayer layer];
+            maskLayer.path = [UIBezierPath bezierPathWithRoundedRect: self.toolbar.bounds byRoundingCorners: UIRectCornerTopLeft | UIRectCornerTopRight cornerRadii: (CGSize){10.0, 10.}].CGPath;
+            self.toolbar.layer.mask = maskLayer;
+        }
     }
-    if (!_browserOptions.toolbartranslucent) { // Set toolbar translucent to no if user sets it in options
-      self.toolbar.translucent = NO;
-    }
-    // Rounded corners
-    CAShapeLayer * maskLayer = [CAShapeLayer layer];
-    maskLayer.path = [UIBezierPath bezierPathWithRoundedRect: self.toolbar.bounds byRoundingCorners: UIRectCornerTopLeft | UIRectCornerTopRight cornerRadii: (CGSize){10.0, 10.}].CGPath;
-    self.toolbar.layer.mask = maskLayer;
 
     float locationBarY = toolbarIsAtBottom ? self.view.bounds.size.height - FOOTER_HEIGHT : self.view.bounds.size.height - TOOLBAR_HEIGHT;
 
     self.addressLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, locationBarY, 220, LOCATIONBAR_HEIGHT)];
-    self.addressLabel.font = [UIFont systemFontOfSize:self.addressLabel.font.pointSize weight:UIFontWeightSemibold];
-    self.addressLabel.textColor = [UIColor colorWithWhite:1.000 alpha:1.000];
+    // For iOS 26, use smaller font size with centered text and ellipsis
+    if ([self isIOS26OrLater]) {
+        self.addressLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+        // Use iOS system blue (same as close button)
+        self.addressLabel.textColor = [UIColor colorWithRed:60.0 / 255.0 green:136.0 / 255.0 blue:230.0 / 255.0 alpha:1];
+        self.addressLabel.textAlignment = NSTextAlignmentCenter;
+        self.addressLabel.lineBreakMode = NSLineBreakByTruncatingTail; // Ellipsis at the end
+        
+        // Add shadow for readability over any background (like system UI)
+        self.addressLabel.layer.shadowColor = [[UIColor blackColor] CGColor];
+        self.addressLabel.layer.shadowOffset = CGSizeMake(0, 1);
+        self.addressLabel.layer.shadowOpacity = 0.4;
+        self.addressLabel.layer.shadowRadius = 2;
+        self.addressLabel.layer.masksToBounds = NO;
+    } else {
+        self.addressLabel.font = [UIFont systemFontOfSize:self.addressLabel.font.pointSize weight:UIFontWeightSemibold];
+        self.addressLabel.textColor = [UIColor colorWithWhite:1.000 alpha:1.000];
+    }
     self.addressLabel.text = NSLocalizedString(@"Loading...", nil);
-    self.addressLabel.clipsToBounds = YES;
+    self.addressLabel.clipsToBounds = NO; // Allow shadow to show
 
     NSString *base64String = @"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAMAAADVRocKAAABMlBMVEUAAAD///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////8t10FaAAAAZXRSTlMAAgMECAkKCwwNFRYZGhscHR4gISMkJidERkdISUpMTU5QWFpbXGJjZGdpamtsbW5vkJGSk5SYmZqbnJ6ipKaqr7G1tre4xMXGy83Oz9fY2drb4eLj5OXq7O3x8vP0+Pn6+/z9/hZ3hm4AAAABYktHRGW13YifAAAB2ElEQVRo3u2ZV1MCMRSFFywUEbAgChZsWGgKVlRUFAvI2lARFqWY//8XdLIrg7jMJDd5cJx7Hu+ZOd9N5u7OJqsozPJFM4XXer1cyETGFenqW7oiHbpctMrND96RLqlTEuMH08REewOy8ofyxFTXTkn5KukhVQphsN3/Qyrgt9n8ga3H9hr6JQC+978Ubg+OdeXJKO5ImB8j6sTeWXWcGuVJ4fk35nPT8rNuSer1oujzsGz0b+k2LMYaFgQB+vNbsv92HM/UuhDL9+lths28VWp9jAkBIvp8mm60tUTNNSFAhmakzM1tah4JAW5oRtDcnKFmXghQphkT5qafmi9CgHeaYTc37dR8EwLoQwRzEYAABCAAAQhAAAL+CWAknlNrhEE1NRfzcse7d5uEQ63jUb78eY1wqhriyd9oEW61Ehz9A/K/CMxr8GgEpOowI+CAALXPOJ9NKKDpYQIkCFhRJsA5HJBlAtzDASoTQIMDNI4XHEwIQAACEIAABCAAAQhAAAIkfb5XmAC3cEDxbxyhYnDAOhPACz7GNtiOsUoaCmD9P+6uAmfIxXpZMQ3apNYc+3VLAnKdE+e5MApx71Jllu/Ky5lscLV/6FJ45YmeFZneGloxG+k9n59e1Kzb8nzyBQAAAABJRU5ErkJggg==";
 
-    UIView *customView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 131, 20)];
-    customView.clipsToBounds = YES;
-    NSURL *url = [NSURL URLWithString:base64String];
-    NSData *imageData = [NSData dataWithContentsOfURL:url];
-    UIImageView *imageView = [[UIImageView alloc] initWithImage:[UIImage imageWithData:imageData]];
-    imageView.frame = CGRectMake(0, 0, 20, 20);
-    self.addressLabel.frame = CGRectMake(25, 0, 111, 20);
-    self.addressLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [customView addSubview:imageView];
-    [customView addSubview:self.addressLabel];
+    // For iOS 26, calculate customView width based on screen width
+    // Layout: [8px footer padding | back(44px) | 8px | location | 8px | forward(44px) | 8px footer padding]
+    CGFloat customViewWidth;
+    if ([self isIOS26OrLater]) {
+        CGFloat screenWidth = self.view.bounds.size.width;
+        // location width = screen width - (8px + 44px + 8px + 8px + 44px + 8px) = screen width - 120px
+        customViewWidth = screenWidth - 168;
+        if (customViewWidth < 100) customViewWidth = 100; // Minimum width
+    } else {
+        customViewWidth = 131;
+    }
+    
+    UIView *customView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, customViewWidth, 20)];
+    customView.clipsToBounds = NO; // Allow shadow to show for iOS 26
+    
+    if ([self isIOS26OrLater]) {
+        // For iOS 26: no icon, label with 4px padding on both sides (inner padding)
+        self.addressLabel.frame = CGRectMake(4, 0, customViewWidth - 8, 20);
+        self.addressLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        
+        [customView addSubview:self.addressLabel];
+    } else {
+        // Original layout for older iOS
+        NSURL *url = [NSURL URLWithString:base64String];
+        NSData *imageData = [NSData dataWithContentsOfURL:url];
+        UIImageView *imageView = [[UIImageView alloc] initWithImage:[UIImage imageWithData:imageData]];
+        imageView.frame = CGRectMake(0, 0, 20, 20);
+        self.addressLabel.frame = CGRectMake(25, 0, 111, 20);
+        self.addressLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [customView addSubview:imageView];
+        [customView addSubview:self.addressLabel];
+    }
+    
     customView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
 
     self.addressButton = [[UIBarButtonItem alloc] initWithCustomView:customView];
@@ -863,18 +955,87 @@ BOOL isExiting = FALSE;
     UIImage *arrowRightResizedImage = UIGraphicsGetImageFromCurrentImageContext();
     UIGraphicsEndImageContext();
 
-    self.forwardButton = [[UIBarButtonItem alloc] initWithImage:arrowRightResizedImage style:UIBarButtonItemStylePlain target:self action:@selector(goForward:)];
-    self.forwardButton.enabled = YES;
-    self.forwardButton.imageInsets = UIEdgeInsetsZero;
+    // For iOS 26, use system chevron buttons for a native look
+    if ([self isIOS26OrLater]) {
+        if (@available(iOS 13.0, *)) {
+            UIImage *chevronLeft = [UIImage systemImageNamed:@"chevron.left"];
+            UIImage *chevronRight = [UIImage systemImageNamed:@"chevron.right"];
+            
+            // Create custom button views with explicit size to avoid constraint conflicts
+            UIButton *backBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+            [backBtn setImage:chevronLeft forState:UIControlStateNormal];
+            backBtn.frame = CGRectMake(0, 0, 44, 44);
+            [backBtn addTarget:self action:@selector(goBack:) forControlEvents:UIControlEventTouchUpInside];
+            
+            UIButton *forwardBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+            [forwardBtn setImage:chevronRight forState:UIControlStateNormal];
+            forwardBtn.frame = CGRectMake(0, 0, 44, 44);
+            [forwardBtn addTarget:self action:@selector(goForward:) forControlEvents:UIControlEventTouchUpInside];
+            
+            self.backButton = [[UIBarButtonItem alloc] initWithCustomView:backBtn];
+            self.forwardButton = [[UIBarButtonItem alloc] initWithCustomView:forwardBtn];
+        } else {
+            // Fallback for iOS < 13 (shouldn't happen on iOS 26, but for safety)
+            self.backButton = [[UIBarButtonItem alloc] initWithImage:arrowLeftResizedImage style:UIBarButtonItemStylePlain target:self action:@selector(goBack:)];
+            self.forwardButton = [[UIBarButtonItem alloc] initWithImage:arrowRightResizedImage style:UIBarButtonItemStylePlain target:self action:@selector(goForward:)];
+        }
+    } else {
+        // Use custom images for older iOS versions
+        self.forwardButton = [[UIBarButtonItem alloc] initWithImage:arrowRightResizedImage style:UIBarButtonItemStylePlain target:self action:@selector(goForward:)];
+        self.backButton = [[UIBarButtonItem alloc] initWithImage:arrowLeftResizedImage style:UIBarButtonItemStylePlain target:self action:@selector(goBack:)];
+    }
+    
+    // Enable buttons and set properties
+    if ([self isIOS26OrLater] && self.forwardButton.customView) {
+        UIButton *forwardBtn = (UIButton *)self.forwardButton.customView;
+        [forwardBtn setEnabled:YES];
+        
+        // Add shadow for readability over any background (like system UI)
+        forwardBtn.layer.shadowColor = [[UIColor blackColor] CGColor];
+        forwardBtn.layer.shadowOffset = CGSizeMake(0, 1);
+        forwardBtn.layer.shadowOpacity = 0.3;
+        forwardBtn.layer.shadowRadius = 3;
+        forwardBtn.layer.masksToBounds = NO;
+    } else {
+        self.forwardButton.enabled = YES;
+        self.forwardButton.imageInsets = UIEdgeInsetsZero;
+    }
     if (_browserOptions.navigationbuttoncolor != nil) { // Set button color if user sets it in options
-      self.forwardButton.tintColor = [self colorFromHexString:_browserOptions.navigationbuttoncolor];
+        if ([self isIOS26OrLater] && self.forwardButton.customView) {
+            // For iOS 26 with custom view, set tint on the UIButton
+            [(UIButton *)self.forwardButton.customView setTintColor:[self colorFromHexString:_browserOptions.navigationbuttoncolor]];
+        } else {
+            self.forwardButton.tintColor = [self colorFromHexString:_browserOptions.navigationbuttoncolor];
+        }
+    } else if ([self isIOS26OrLater] && self.forwardButton.customView) {
+        // Use iOS system blue (same as close button)
+        [(UIButton *)self.forwardButton.customView setTintColor:[UIColor colorWithRed:60.0 / 255.0 green:136.0 / 255.0 blue:230.0 / 255.0 alpha:1]];
     }
 
-    self.backButton = [[UIBarButtonItem alloc] initWithImage:arrowLeftResizedImage style:UIBarButtonItemStylePlain target:self action:@selector(goBack:)];
-    self.backButton.enabled = YES;
-    self.backButton.imageInsets = UIEdgeInsetsZero;
+    if ([self isIOS26OrLater] && self.backButton.customView) {
+        UIButton *backBtn = (UIButton *)self.backButton.customView;
+        [backBtn setEnabled:YES];
+        
+        // Add shadow for readability over any background (like system UI)
+        backBtn.layer.shadowColor = [[UIColor blackColor] CGColor];
+        backBtn.layer.shadowOffset = CGSizeMake(0, 1);
+        backBtn.layer.shadowOpacity = 0.3;
+        backBtn.layer.shadowRadius = 3;
+        backBtn.layer.masksToBounds = NO;
+    } else {
+        self.backButton.enabled = YES;
+        self.backButton.imageInsets = UIEdgeInsetsZero;
+    }
     if (_browserOptions.navigationbuttoncolor != nil) { // Set button color if user sets it in options
-      self.backButton.tintColor = [self colorFromHexString:_browserOptions.navigationbuttoncolor];
+        if ([self isIOS26OrLater] && self.backButton.customView) {
+            // For iOS 26 with custom view, set tint on the UIButton
+            [(UIButton *)self.backButton.customView setTintColor:[self colorFromHexString:_browserOptions.navigationbuttoncolor]];
+        } else {
+            self.backButton.tintColor = [self colorFromHexString:_browserOptions.navigationbuttoncolor];
+        }
+    } else if ([self isIOS26OrLater] && self.backButton.customView) {
+        // Use iOS system blue (same as close button)
+        [(UIButton *)self.backButton.customView setTintColor:[UIColor colorWithRed:60.0 / 255.0 green:136.0 / 255.0 blue:230.0 / 255.0 alpha:1]];
     }
 
     NSString *base64CloseString = @"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABABAMAAABYR2ztAAAALVBMVEUAAABQk/9Qk/9Plf9Ok/9Pk/9Olf9Ok/9PlP9PlP9PlP9PlP9PlP9PlP////9ofB/lAAAADXRSTlMASVBUVVdbXOLj5Pv8zg0BTAAAAAFiS0dEDm+9ME8AAAEASURBVEjH7dW7DcIwEAbgSJAhYANghIxAQ0/DCKwAm0BPg0TpFlYgSm4XZFn2vR3Rx5UdW58s32+naeZW2vpufd3eSvcxHPR8G3pcAC+94Ajf0t+BJtoAzzJYBPjIBXsYTzjqYDzz+WWANxlqggOaEIAmJCAJBUhCA5wwAE5YACVMgBI2gIQDIOEBmXCBTPhAIipAImpAjNkQrPhRogrEXVR2kM5Ap1MESaXzr03GM+hqRDwD647wIFWIdIg+kavgErkKHoFldAgso03QHJgEzYFF8CAZBA+SJmQSFSGTKAkdZUHoKHPCuguMmHxInae4n3rM8a1eXa3ybi7zjxLbD/8a07ETLUOlAAAAAElFTkSuQmCC";
@@ -887,61 +1048,202 @@ BOOL isExiting = FALSE;
     UIImage *closeResizedImage = UIGraphicsGetImageFromCurrentImageContext();
     UIGraphicsEndImageContext();
 
-    UIBarButtonItem *closeButton = [[UIBarButtonItem alloc] initWithImage:closeResizedImage style:UIBarButtonItemStylePlain target:self action:@selector(close)];
-    closeButton.enabled = YES;
-    closeButton.imageInsets = UIEdgeInsetsZero;
-    if (_browserOptions.navigationbuttoncolor != nil) { // Set button color if user sets it in options
-        closeButton.tintColor = [self colorFromHexString:_browserOptions.navigationbuttoncolor];
-    }
-
-
-    // Filter out Navigation Buttons if user requests so
-    if (_browserOptions.hidenavigationbuttons) {
-        if (_browserOptions.lefttoright) {
-            [self.toolbar setItems:@[flexibleSpaceButton, self.closeButton]];
-        } else {
-            [self.toolbar setItems:@[self.closeButton, flexibleSpaceButton]];
+    // For older iOS only: create toolbar items
+    if (![self isIOS26OrLater]) {
+        UIBarButtonItem *closeButton = [[UIBarButtonItem alloc] initWithImage:closeResizedImage style:UIBarButtonItemStylePlain target:self action:@selector(close)];
+        closeButton.enabled = YES;
+        closeButton.imageInsets = UIEdgeInsetsZero;
+        if (_browserOptions.navigationbuttoncolor != nil) { // Set button color if user sets it in options
+            closeButton.tintColor = [self colorFromHexString:_browserOptions.navigationbuttoncolor];
         }
-    } else if (_browserOptions.lefttoright) {
-        [self.toolbar setItems:@[self.backButton, fixedSpaceButton, self.forwardButton, flexibleSpaceButton, self.closeButton]];
-    } else {
-        [self.toolbar setItems:@[self.closeButton, flexibleSpaceButton, self.addressButton, flexibleSpaceButton, closeButton]];
+
+        // Filter out Navigation Buttons if user requests so
+        if (_browserOptions.hidenavigationbuttons) {
+            if (_browserOptions.lefttoright) {
+                [self.toolbar setItems:@[flexibleSpaceButton, self.closeButton]];
+            } else {
+                [self.toolbar setItems:@[self.closeButton, flexibleSpaceButton]];
+            }
+        } else if (_browserOptions.lefttoright) {
+            [self.toolbar setItems:@[self.backButton, fixedSpaceButton, self.forwardButton, flexibleSpaceButton, self.closeButton]];
+        } else {
+            [self.toolbar setItems:@[self.closeButton, flexibleSpaceButton, self.addressButton]];
+        }
     }
 
-    float footerY = self.view.bounds.size.height - TOOLBAR_HEIGHT - bottomPadding;
+    // For iOS 26, position footer with small gap from bottom; for older iOS, above safe area
+    float footerY;
+    if ([self isIOS26OrLater]) {
+        footerY = self.view.bounds.size.height - TOOLBAR_HEIGHT - 20.0; // 10px gap from bottom
+    } else {
+        footerY = self.view.bounds.size.height - TOOLBAR_HEIGHT - bottomPadding; // Above safe area
+    }
     CGRect footerFrame = CGRectMake(0.0, footerY, self.view.bounds.size.width, TOOLBAR_HEIGHT);
     self.footer = [[UIToolbar alloc] initWithFrame:footerFrame];
     self.footer.alpha = 1.000;
     self.footer.autoresizesSubviews = YES;
     self.footer.autoresizingMask = (UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin);
-    self.footer.barStyle = UIBarStyleBlackOpaque;
+    
+    // For iOS 26, make footer translucent with blur like Safari; for older iOS, use the configured style
+    if ([self isIOS26OrLater]) {
+        self.footer.barStyle = UIBarStyleDefault;
+        self.footer.translucent = YES;
+        
+        // Safari-style blur effect with white tint
+        if (@available(iOS 15.0, *)) {
+            UIToolbarAppearance* appearance = [[UIToolbarAppearance alloc] init];
+            [appearance configureWithDefaultBackground];
+            appearance.backgroundEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterial];
+            appearance.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.85];
+            self.footer.standardAppearance = appearance;
+            self.footer.scrollEdgeAppearance = appearance;
+            self.footer.compactAppearance = appearance;
+        } else {
+            self.footer.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.9];
+        }
+        
+        // Add subtle top border
+        CALayer *topBorder = [CALayer layer];
+        topBorder.frame = CGRectMake(0, 0, self.view.bounds.size.width, 0.5);
+        topBorder.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.1].CGColor;
+        [self.footer.layer addSublayer:topBorder];
+    } else {
+        self.footer.barStyle = UIBarStyleBlackOpaque;
+        if (_browserOptions.toolbarcolor != nil) { // Set toolbar color if user sets it in options
+          self.footer.barTintColor = [self colorFromHexString:_browserOptions.toolbarcolor];
+        }
+        if (!_browserOptions.toolbartranslucent) { // Set toolbar translucent to no if user sets it in options
+          self.footer.translucent = NO;
+        }
+    }
+    
     self.footer.clearsContextBeforeDrawing = NO;
     self.footer.clipsToBounds = NO;
     self.footer.contentMode = UIViewContentModeScaleToFill;
     self.footer.hidden = NO;
     self.footer.multipleTouchEnabled = NO;
-    self.footer.opaque = NO;
     self.footer.userInteractionEnabled = YES;
-    if (_browserOptions.toolbarcolor != nil) { // Set toolbar color if user sets it in options
-      self.footer.barTintColor = [self colorFromHexString:_browserOptions.toolbarcolor];
+    
+    // For iOS 26, make footer truly transparent with new layout: back/forward closer together, location on right
+    if ([self isIOS26OrLater]) {
+        self.footer.opaque = NO;
+        self.footer.translucent = YES;
+        // Set a completely transparent background
+        [self.footer setBackgroundImage:[UIImage new] forToolbarPosition:UIBarPositionAny barMetrics:UIBarMetricsDefault];
+        [self.footer setShadowImage:[UIImage new] forToolbarPosition:UIBarPositionAny];
+        
+        // iOS 26 layout: [8px | back | 8px | location | 8px | forward | flex | 8px]
+        UIBarButtonItem* leadingPad = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFixedSpace target:nil action:nil];
+        leadingPad.width = 8;
+        
+        UIBarButtonItem* space1 = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFixedSpace target:nil action:nil];
+        space1.width = 8;
+        
+        UIBarButtonItem* space2 = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFixedSpace target:nil action:nil];
+        space2.width = 8;
+        
+        UIBarButtonItem* flexSpace = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil];
+        
+        UIBarButtonItem* trailingPad = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFixedSpace target:nil action:nil];
+        trailingPad.width = 8;
+        
+        [self.footer setItems:@[leadingPad, self.backButton, space1, self.addressButton, space2, self.forwardButton, flexSpace, trailingPad]];
+    } else {
+        self.footer.opaque = NO;
+        [self.footer setItems:@[self.backButton, fixedSpaceButton, self.forwardButton, flexibleSpaceButton]];
     }
-    if (!_browserOptions.toolbartranslucent) { // Set toolbar translucent to no if user sets it in options
-      self.footer.translucent = NO;
-    }
-    [self.footer setItems:@[self.backButton, fixedSpaceButton, self.forwardButton, flexibleSpaceButton]];
 
     float safeBottomY = self.view.bounds.size.height - bottomPadding;
+    // For iOS 26, no horizontal padding (matches footer)
     CGRect safeBottomFrame = CGRectMake(0.0, safeBottomY, self.view.bounds.size.width, bottomPadding);
-    UIToolbar *safeBottom = [[UIToolbar alloc] initWithFrame:safeBottomFrame];
-    if (_browserOptions.toolbarcolor != nil) { // Set toolbar color if user sets it in options
-        safeBottom.barTintColor = [self colorFromHexString:_browserOptions.toolbarcolor];
+    self.safeBottom = [[UIToolbar alloc] initWithFrame:safeBottomFrame];
+    
+    // For iOS 26, hide safeBottom (footer blur extends to cover it); for older iOS, use the configured color
+    if ([self isIOS26OrLater]) {
+        self.safeBottom.hidden = YES;
+    } else {
+        self.safeBottom.hidden = NO;
+        if (_browserOptions.toolbarcolor != nil) { // Set toolbar color if user sets it in options
+            self.safeBottom.barTintColor = [self colorFromHexString:_browserOptions.toolbarcolor];
+        }
     }
 
     self.view.backgroundColor = [UIColor clearColor];
-    [self.view addSubview:self.toolbar];
+    
+    // For iOS 26, create a floating close button instead of toolbar
+    if ([self isIOS26OrLater]) {
+        // Create a floating close button in iOS 26 style (circular with white background)
+        UIButton* floatingCloseButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        [floatingCloseButton setTitle:_browserOptions.closebuttoncaption ? _browserOptions.closebuttoncaption : @"Cancel" forState:UIControlStateNormal];
+        if (_browserOptions.closebuttoncolor != nil) {
+            [floatingCloseButton setTintColor:[self colorFromHexString:_browserOptions.closebuttoncolor]];
+        }
+        floatingCloseButton.titleLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightSemibold];
+        [floatingCloseButton addTarget:self action:@selector(close) forControlEvents:UIControlEventTouchUpInside];
+        
+        // iOS 26 style: white background with subtle shadow
+        if (@available(iOS 13.0, *)) {
+            UIView* whiteBackgroundView = [[UIView alloc] init];
+            whiteBackgroundView.backgroundColor = [UIColor whiteColor];
+            whiteBackgroundView.layer.cornerRadius = 24;
+            whiteBackgroundView.layer.masksToBounds = NO;
+            whiteBackgroundView.layer.shadowColor = [UIColor blackColor].CGColor;
+            whiteBackgroundView.layer.shadowOpacity = 0.15;
+            whiteBackgroundView.layer.shadowOffset = CGSizeMake(0, 2);
+            whiteBackgroundView.layer.shadowRadius = 8;
+            whiteBackgroundView.translatesAutoresizingMaskIntoConstraints = NO;
+            [self.view addSubview:whiteBackgroundView];
+            
+            floatingCloseButton.backgroundColor = [UIColor clearColor];
+            floatingCloseButton.translatesAutoresizingMaskIntoConstraints = NO;
+            [whiteBackgroundView addSubview:floatingCloseButton];
+            
+            // Position white background view at the top right with 10px top padding
+            if (@available(iOS 11.0, *)) {
+                CGFloat topInset = self.view.safeAreaInsets.top;
+                [NSLayoutConstraint activateConstraints:@[
+                    [whiteBackgroundView.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:10],
+                    [whiteBackgroundView.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-12],
+                    [whiteBackgroundView.heightAnchor constraintEqualToConstant:44 + topInset],
+                    // Position button content below safe area
+                    [floatingCloseButton.topAnchor constraintEqualToAnchor:whiteBackgroundView.topAnchor constant:topInset],
+                    [floatingCloseButton.leadingAnchor constraintEqualToAnchor:whiteBackgroundView.leadingAnchor constant:18],
+                    [floatingCloseButton.trailingAnchor constraintEqualToAnchor:whiteBackgroundView.trailingAnchor constant:-18],
+                    [floatingCloseButton.heightAnchor constraintEqualToConstant:44]
+                ]];
+            } else {
+                [NSLayoutConstraint activateConstraints:@[
+                    [whiteBackgroundView.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:10],
+                    [whiteBackgroundView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-12],
+                    [whiteBackgroundView.heightAnchor constraintEqualToConstant:68],
+                    [floatingCloseButton.topAnchor constraintEqualToAnchor:whiteBackgroundView.topAnchor constant:20],
+                    [floatingCloseButton.leadingAnchor constraintEqualToAnchor:whiteBackgroundView.leadingAnchor constant:18],
+                    [floatingCloseButton.trailingAnchor constraintEqualToAnchor:whiteBackgroundView.trailingAnchor constant:-18],
+                    [floatingCloseButton.heightAnchor constraintEqualToConstant:48]
+                ]];
+            }
+        } else {
+            // Fallback for older iOS (shouldn't happen on iOS 26, but for safety)
+            floatingCloseButton.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.3];
+            floatingCloseButton.layer.cornerRadius = 20;
+            floatingCloseButton.contentEdgeInsets = UIEdgeInsetsMake(8, 16, 8, 16);
+            floatingCloseButton.translatesAutoresizingMaskIntoConstraints = NO;
+            [self.view addSubview:floatingCloseButton];
+            
+            [NSLayoutConstraint activateConstraints:@[
+                [floatingCloseButton.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:32],
+                [floatingCloseButton.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-12],
+                [floatingCloseButton.heightAnchor constraintEqualToConstant:40]
+            ]];
+        }
+    } else {
+        // For older iOS: add toolbar to view
+        [self.view addSubview:self.toolbar];
+    }
+    
     if (!_browserOptions.hidenavigationbuttons) {
         [self.view addSubview:self.footer];
-        [self.view addSubview:safeBottom];
+        [self.view addSubview:self.safeBottom];
     }
     [self.view addSubview:self.spinner];
 }
@@ -958,6 +1260,11 @@ BOOL isExiting = FALSE;
 
 - (void)setCloseButtonTitle:(NSString*)title : (NSString*) colorString : (int) buttonIndex
 {
+    // For iOS 26, the close button was already created properly in createViews, so skip this to avoid duplicates
+    if ([self isIOS26OrLater]) {
+        return;
+    }
+    
     // the advantage of using UIBarButtonSystemItemDone is the system will localize it for you automatically
     // but, if you want to set this yourself, knock yourself out (we can't set the title for a system Done button, so we have to create a new one)
     self.closeButton = nil;
@@ -1090,6 +1397,31 @@ BOOL isExiting = FALSE;
     [super viewDidLoad];
 }
 
+- (void)viewSafeAreaInsetsDidChange
+{
+    [super viewSafeAreaInsetsDidChange];
+    
+    // For iOS 26, set additional safe area insets to ensure content doesn't hide under floating bars
+    // Only set once to avoid feedback loops
+    if ([self isIOS26OrLater] && UIEdgeInsetsEqualToEdgeInsets(self.additionalSafeAreaInsets, UIEdgeInsetsZero)) {
+        CGFloat topInset = 0;
+        CGFloat bottomInset = 0;
+        
+        // Only reserve top space if navigation buttons are hidden (no footer)
+        if (!_browserOptions.hidenavigationbuttons) {
+            // Top: Button height (48px) + padding (12px) - safe area is already accounted for by the button position
+            topInset = 48.0 + 12.0 + 12.0;
+        }
+        
+        // Reserve bottom space if navigation buttons are shown (footer is visible)
+        if (!_browserOptions.hidenavigationbuttons) {
+            bottomInset = TOOLBAR_HEIGHT;
+        }
+        
+        self.additionalSafeAreaInsets = UIEdgeInsetsMake(topInset, 0, bottomInset, 0);
+    }
+}
+
 - (void)viewDidDisappear:(BOOL)animated
 {
     [super viewDidDisappear:animated];
@@ -1164,29 +1496,96 @@ BOOL isExiting = FALSE;
     [super viewWillAppear:animated];
 }
 
+- (void)viewDidLayoutSubviews
+{
+    [super viewDidLayoutSubviews];
+    [self rePositionViews];
+}
+
+- (BOOL)isIOS26OrLater
+{
+    // Runtime check (doesn't require building with an iOS 26 SDK).
+    NSOperatingSystemVersion v = [[NSProcessInfo processInfo] operatingSystemVersion];
+    return v.majorVersion >= 26;
+}
+
 - (float) getStatusBarOffset {
+    // Prefer safe-area insets on modern iOS to avoid double-counting
+    // when UIKit already accounts for status bar / notch.
+    if (@available(iOS 11.0, *)) {
+        return (float) self.view.safeAreaInsets.top;
+    }
     return (float) [[UIApplication sharedApplication] statusBarFrame].size.height;
 }
 
 - (void) rePositionViews {
-    CGRect viewBounds = [self.webView bounds];
-    CGFloat statusBarHeight = [self getStatusBarOffset];
-
-    // orientation portrait or portraitUpsideDown: status bar is on the top and web view is to be aligned to the bottom of the status bar
-    // orientation landscapeLeft or landscapeRight: status bar height is 0 in but lets account for it in case things ever change in the future
-    viewBounds.origin.y = statusBarHeight;
-
-    // account for web view height portion that may have been reduced by a previous call to this method
-    viewBounds.size.height = viewBounds.size.height - statusBarHeight + lastReducedStatusBarHeight;
-    lastReducedStatusBarHeight = statusBarHeight;
-
-    if ((_browserOptions.toolbar) && ([_browserOptions.toolbarposition isEqualToString:kInAppBrowserToolbarBarPositionTop])) {
-        // if we have to display the toolbar on top of the web view, we need to account for its height
-        viewBounds.origin.y += TOOLBAR_HEIGHT;
-        self.toolbar.frame = CGRectMake(self.toolbar.frame.origin.x, statusBarHeight, self.toolbar.frame.size.width, self.toolbar.frame.size.height);
+    if (!self.webView) {
+        return;
     }
 
-    self.webView.frame = viewBounds;
+    CGRect bounds = self.view.bounds;
+    CGFloat topInset = [self getStatusBarOffset];
+    CGFloat bottomInset = 0.0;
+    if (@available(iOS 11.0, *)) {
+        bottomInset = self.view.safeAreaInsets.bottom;
+    }
+
+    BOOL hideNavButtons = _browserOptions.hidenavigationbuttons;
+    
+    // For older iOS only: handle toolbar positioning
+    if (![self isIOS26OrLater] && self.toolbar) {
+        BOOL toolbarAtTop = (_browserOptions.toolbar) && ([_browserOptions.toolbarposition isEqualToString:kInAppBrowserToolbarBarPositionTop]);
+        BOOL toolbarOverlay = toolbarAtTop && _browserOptions.toolbaroverlay;
+        
+        // Position toolbars relative to safe-area insets.
+        if (toolbarAtTop) {
+            if (toolbarOverlay) {
+                // Cover the safe-area region so the bar looks like a native overlay.
+                self.toolbar.frame = CGRectMake(0.0, 0.0, bounds.size.width, TOOLBAR_HEIGHT + topInset);
+            } else {
+                self.toolbar.frame = CGRectMake(0.0, topInset, bounds.size.width, TOOLBAR_HEIGHT);
+            }
+        }
+    }
+
+    if (!hideNavButtons && self.footer) {
+        // For iOS 26, footer with 10px gap from bottom; for older iOS, above safe area
+        CGFloat footerY = [self isIOS26OrLater] ?
+            (bounds.size.height - TOOLBAR_HEIGHT - 20.0) :
+            (bounds.size.height - TOOLBAR_HEIGHT - bottomInset);
+        self.footer.frame = CGRectMake(0.0, footerY, bounds.size.width, TOOLBAR_HEIGHT);
+    }
+
+    if (!hideNavButtons && self.safeBottom) {
+        // For iOS 26, no horizontal padding (matches footer)
+        self.safeBottom.frame = CGRectMake(0.0, bounds.size.height - bottomInset, bounds.size.width, bottomInset);
+    }
+
+    // Compute web view frame (avoid statusBarFrame-based double offsets on newer iOS).
+    CGFloat webY;
+    CGFloat reservedBottom;
+    
+    if ([self isIOS26OrLater]) {
+        // For iOS 26, webview takes full screen - footer and cancel button float over
+        // Content respects safe area via additionalSafeAreaInsets set in viewDidLoad
+        webY = 0.0;
+        reservedBottom = 0.0; // Don't reserve space in frame
+        
+        // Don't update additionalSafeAreaInsets here to avoid layout feedback loop
+        // It's set once in viewDidLoad
+    } else {
+        BOOL toolbarAtTop = (_browserOptions.toolbar) && ([_browserOptions.toolbarposition isEqualToString:kInAppBrowserToolbarBarPositionTop]);
+        BOOL toolbarOverlay = toolbarAtTop && _browserOptions.toolbaroverlay;
+        webY = toolbarOverlay ? 0.0 : (topInset + (toolbarAtTop ? TOOLBAR_HEIGHT : 0.0));
+        reservedBottom = (!hideNavButtons ? (TOOLBAR_HEIGHT + bottomInset) : 0.0);
+    }
+    
+    CGFloat webH = bounds.size.height - webY - reservedBottom;
+    if (webH < 0) {
+        webH = 0;
+    }
+
+    self.webView.frame = CGRectMake(0.0, webY, bounds.size.width, webH);
 }
 
 // Helper function to convert hex color string to UIColor
@@ -1207,13 +1606,34 @@ BOOL isExiting = FALSE;
     // loading url, start spinner, update back/forward
 
     self.addressLabel.text = NSLocalizedString(@"Loading...", nil);
-    NSUInteger length = [self.addressLabel.text length];
-    self.addressLabel.frame = CGRectMake(25, 0, 111, 20);
-    self.addressButton.customView.frame = CGRectMake(25, 0, 131, 20);
-    self.backButton.enabled = theWebView.canGoBack;
-    self.forwardButton.enabled = theWebView.canGoForward;
+    
+    // For iOS 26, calculate dynamic width based on screen size with 4px inner padding
+    if ([self isIOS26OrLater]) {
+        CGFloat screenWidth = self.view.bounds.size.width;
+        CGFloat customViewWidth = screenWidth - 168; // Total space minus buttons and spacing
+        if (customViewWidth < 100) customViewWidth = 100;
+        
+        self.addressLabel.frame = CGRectMake(4, 0, customViewWidth - 8, 20); // 4px inner padding left/right
+        self.addressButton.customView.frame = CGRectMake(0, 0, customViewWidth, 20);
+    } else {
+        NSUInteger length = [self.addressLabel.text length];
+        self.addressLabel.frame = CGRectMake(25, 0, 111, 20);
+        self.addressButton.customView.frame = CGRectMake(25, 0, 131, 20);
+    }
+    
+    // Update button states (handle custom view buttons for iOS 26)
+    if ([self isIOS26OrLater] && self.backButton.customView) {
+        [(UIButton *)self.backButton.customView setEnabled:theWebView.canGoBack];
+    } else {
+        self.backButton.enabled = theWebView.canGoBack;
+    }
+    
+    if ([self isIOS26OrLater] && self.forwardButton.customView) {
+        [(UIButton *)self.forwardButton.customView setEnabled:theWebView.canGoForward];
+    } else {
+        self.forwardButton.enabled = theWebView.canGoForward;
+    }
 
-    NSLog(_browserOptions.hidespinner ? @"Yes" : @"No");
     if(!_browserOptions.hidespinner) {
         [self.spinner startAnimating];
     }
@@ -1239,15 +1659,41 @@ BOOL isExiting = FALSE;
 {
     // update url, stop spinner, update back/forward
     self.addressLabel.text = self.currentURL.host;
-    NSUInteger length = [self.addressLabel.text length];
-    if (length > 20) {
-        length = 20;
+    
+    // For iOS 26, calculate dynamic width based on screen size with 4px inner padding
+    if ([self isIOS26OrLater]) {
+        CGFloat screenWidth = self.view.bounds.size.width;
+        CGFloat customViewWidth = screenWidth - 168; // Total space minus buttons and spacing
+        if (customViewWidth < 100) customViewWidth = 100;
+        
+        self.addressLabel.frame = CGRectMake(4, 0, customViewWidth - 8, 20); // 4px inner padding left/right
+        self.addressButton.customView.frame = CGRectMake(0, 0, customViewWidth, 20);
+    } else {
+        NSUInteger length = [self.addressLabel.text length];
+        if (length > 20) {
+            length = 20;
+        }
+        self.addressLabel.frame = CGRectMake(25, 0, length * 11, 20);
+        self.addressButton.customView.frame = CGRectMake(25, 0, (length * 11) + 20, 20);
     }
-    self.addressLabel.frame = CGRectMake(25, 0, length * 11, 20);
-    self.addressButton.customView.frame = CGRectMake(25, 0, (length * 11) + 20, 20);
-    self.backButton.enabled = theWebView.canGoBack;
-    self.forwardButton.enabled = theWebView.canGoForward;
-    theWebView.scrollView.contentInset = UIEdgeInsetsZero;
+    
+    // Update button states (handle custom view buttons for iOS 26)
+    if ([self isIOS26OrLater] && self.backButton.customView) {
+        [(UIButton *)self.backButton.customView setEnabled:theWebView.canGoBack];
+    } else {
+        self.backButton.enabled = theWebView.canGoBack;
+    }
+    
+    if ([self isIOS26OrLater] && self.forwardButton.customView) {
+        [(UIButton *)self.forwardButton.customView setEnabled:theWebView.canGoForward];
+    } else {
+        self.forwardButton.enabled = theWebView.canGoForward;
+    }
+    
+    // For iOS 26, maintain the bottom content inset; for older iOS, reset to zero
+    if (![self isIOS26OrLater]) {
+        theWebView.scrollView.contentInset = UIEdgeInsetsZero;
+    }
 
     [self.spinner stopAnimating];
 
@@ -1255,16 +1701,35 @@ BOOL isExiting = FALSE;
 }
 
 - (void)webView:(WKWebView*)theWebView failedNavigation:(NSString*) delegateName withError:(nonnull NSError *)error{
-    // log fail message, stop spinner, update back/forward
-    NSLog(@"webView:%@ - %ld: %@", delegateName, (long)error.code, [error localizedDescription]);
-
-    self.backButton.enabled = theWebView.canGoBack;
-    self.forwardButton.enabled = theWebView.canGoForward;
+    // Update button states (handle custom view buttons for iOS 26)
+    if ([self isIOS26OrLater] && self.backButton.customView) {
+        [(UIButton *)self.backButton.customView setEnabled:theWebView.canGoBack];
+    } else {
+        self.backButton.enabled = theWebView.canGoBack;
+    }
+    
+    if ([self isIOS26OrLater] && self.forwardButton.customView) {
+        [(UIButton *)self.forwardButton.customView setEnabled:theWebView.canGoForward];
+    } else {
+        self.forwardButton.enabled = theWebView.canGoForward;
+    }
+    
     [self.spinner stopAnimating];
 
     self.addressLabel.text = NSLocalizedString(@"Load Error", nil);
-    self.addressLabel.frame = CGRectMake(25, 0, 111, 20);
-    self.addressButton.customView.frame = CGRectMake(25, 0, 131, 20);
+    
+    // For iOS 26, calculate dynamic width based on screen size with 4px inner padding
+    if ([self isIOS26OrLater]) {
+        CGFloat screenWidth = self.view.bounds.size.width;
+        CGFloat customViewWidth = screenWidth - 168; // Total space minus buttons and spacing
+        if (customViewWidth < 100) customViewWidth = 100;
+        
+        self.addressLabel.frame = CGRectMake(4, 0, customViewWidth - 8, 20); // 4px inner padding left/right
+        self.addressButton.customView.frame = CGRectMake(0, 0, customViewWidth, 20);
+    } else {
+        self.addressLabel.frame = CGRectMake(25, 0, 111, 20);
+        self.addressButton.customView.frame = CGRectMake(25, 0, 131, 20);
+    }
 
     [self.navigationDelegate webView:theWebView didFailNavigation:error];
 }
@@ -1284,7 +1749,6 @@ BOOL isExiting = FALSE;
     if (![message.name isEqualToString:IAB_BRIDGE_NAME]) {
         return;
     }
-    //NSLog(@"Received script message %@", message.body);
     [self.navigationDelegate userContentController:userContentController didReceiveScriptMessage:message];
 }
 
